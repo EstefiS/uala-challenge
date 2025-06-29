@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
+	"log"
 
 	"github.com/EstefiS/uala-challenge/internal/core/domain"
 	"github.com/jackc/pgx/v5"
@@ -21,12 +21,6 @@ func NewPostgresRepository(db *pgxpool.Pool) *PostgresRepository {
 	return &PostgresRepository{db: db}
 }
 
-func ensureUserExistsTx(ctx context.Context, tx pgx.Tx, userID string) error {
-	query := "INSERT INTO users (id, created_at) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING"
-	_, err := tx.Exec(ctx, query, userID, time.Now())
-	return err
-}
-
 // --- UserRepository ---
 func (r *PostgresRepository) FollowTx(ctx context.Context, userID, userToFollowID string) error {
 	tx, err := r.db.Begin(ctx)
@@ -35,19 +29,39 @@ func (r *PostgresRepository) FollowTx(ctx context.Context, userID, userToFollowI
 	}
 	defer tx.Rollback(ctx)
 
-	if err := ensureUserExistsTx(ctx, tx, userID); err != nil {
-		return err
-	}
-	if err := ensureUserExistsTx(ctx, tx, userToFollowID); err != nil {
-		return err
-	}
+	batch := &pgx.Batch{}
 
-	_, err = tx.Exec(ctx, "INSERT INTO followers (user_id, follower_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", userToFollowID, userID)
-	if err != nil {
-		return fmt.Errorf("error saving follow relationship: %w", err)
+	batch.Queue("INSERT INTO users (id, created_at) VALUES ($1, NOW()) ON CONFLICT (id) DO NOTHING", userID)
+	batch.Queue("INSERT INTO users (id, created_at) VALUES ($1, NOW()) ON CONFLICT (id) DO NOTHING", userToFollowID)
+	batch.Queue("INSERT INTO followers (user_id, follower_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", userToFollowID, userID)
+
+	backfillQuery := `
+		INSERT INTO timelines (user_id, tweet_id, tweet_created_at)
+		SELECT $1, id, created_at
+		FROM tweets
+		WHERE user_id = $2
+		ORDER BY created_at DESC
+		LIMIT 50
+		ON CONFLICT (user_id, tweet_id) DO NOTHING
+	`
+	batch.Queue(backfillQuery, userID, userToFollowID)
+
+	br := tx.SendBatch(ctx, batch)
+	if err := br.Close(); err != nil {
+		return fmt.Errorf("error en el batch de seguimiento: %w", err)
 	}
 
 	return tx.Commit(ctx)
+}
+func (r *PostgresRepository) GetFollowers(ctx context.Context, userID string) ([]string, error) {
+	query := "SELECT follower_id FROM followers WHERE user_id=$1"
+	rows, err := r.db.Query(ctx, query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
 // --- TweetRepository ---
@@ -58,37 +72,34 @@ func (r *PostgresRepository) PublishTx(ctx context.Context, tweet *domain.Tweet)
 	}
 	defer tx.Rollback(ctx)
 
-	if err := ensureUserExistsTx(ctx, tx, tweet.UserID); err != nil {
-		return err
+	userQuery := "INSERT INTO users (id, created_at) VALUES ($1, NOW()) ON CONFLICT (id) DO NOTHING"
+	if _, err := tx.Exec(ctx, userQuery, tweet.UserID); err != nil {
+		return fmt.Errorf("error ensuring author user existence: %w", err)
+	}
+	tweetQuery := "INSERT INTO tweets (id, user_id, text, created_at) VALUES ($1, $2, $3, $4)"
+	if _, err := tx.Exec(ctx, tweetQuery, tweet.ID, tweet.UserID, tweet.Text, tweet.CreatedAt); err != nil {
+		return fmt.Errorf("error inserting tweet: %w", err)
 	}
 
-	_, err = tx.Exec(ctx, "INSERT INTO tweets (id, user_id, text, created_at) VALUES ($1, $2, $3, $4)",
-		tweet.ID, tweet.UserID, tweet.Text, tweet.CreatedAt)
+	followersQuery := "SELECT follower_id FROM followers WHERE user_id = $1"
+	rows, err := tx.Query(ctx, followersQuery, tweet.UserID)
 	if err != nil {
-		return fmt.Errorf("error saving tweet: %w", err)
-	}
-
-	rows, err := tx.Query(ctx, "SELECT follower_id FROM followers WHERE user_id=$1", tweet.UserID)
-	if err != nil {
-		return fmt.Errorf("error getting followers: %w", err)
-	}
-
-	followerIDs, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return fmt.Errorf("error al recolectar seguidores: %w", err)
-	}
-
-	followerIDs = append(followerIDs, tweet.UserID)
-
-	if len(followerIDs) > 0 {
-		var b pgx.Batch
-		query := "INSERT INTO timelines (user_id, tweet_id, tweet_created_at) VALUES ($1, $2, $3)"
-		for _, followerID := range followerIDs {
-			b.Queue(query, followerID, tweet.ID, tweet.CreatedAt)
-		}
-		br := tx.SendBatch(ctx, &b)
-		if err := br.Close(); err != nil {
-			return fmt.Errorf("error in bulk timeline insertion: %w", err)
+		log.Printf("error getting followers for fan-out: %v", err)
+	} else {
+		followers, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		rows.Close()
+		if err != nil {
+			log.Printf("error collecting followers for fan-out: %v", err)
+		} else if len(followers) > 0 {
+			batch := &pgx.Batch{}
+			fanOutQuery := "INSERT INTO timelines (user_id, tweet_id, tweet_created_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"
+			for _, followerID := range followers {
+				batch.Queue(fanOutQuery, followerID, tweet.ID, tweet.CreatedAt)
+			}
+			br := tx.SendBatch(ctx, batch)
+			if err := br.Close(); err != nil {
+				log.Printf("error in fan-out to follower timelines: %v", err)
+			}
 		}
 	}
 

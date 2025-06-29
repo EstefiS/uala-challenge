@@ -8,6 +8,7 @@ import (
 
 type UserRepository interface {
 	FollowTx(ctx context.Context, userID, userToFollowID string) error
+	GetFollowers(ctx context.Context, userID string) ([]string, error)
 }
 
 type TweetRepository interface {

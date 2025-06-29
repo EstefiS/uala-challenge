@@ -1,4 +1,4 @@
-package server
+package main
 
 import (
 	"context"
@@ -18,13 +18,14 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
-// @title           Uala Challenge API
+// @title           Uala Challenge - Microblogging API
 // @version         1.0
-// @description     Esta es una API para una plataforma de microblogging similar a Twitter.
+// @description     This is an API for a microblogging platform, similar to Twitter, built with Go and Hexagonal Architecture..
 // @termsOfService  http://swagger.io/terms/
 
 // @contact.name   Estefania Sack
-// @contact.url    https://github.com/EstefiS
+// @contact.url    https://github.com/EstefiS/uala-challenge
+// @contact.email  support@example.com
 
 // @license.name  Apache 2.0
 // @license.url   http://www.apache.org/licenses/LICENSE-2.0.html
@@ -34,27 +35,32 @@ import (
 func main() {
 	ctx := context.Background()
 	cfg := configs.LoadConfig()
-	log.Printf("Iniciando aplicación en modo: %s", cfg.AppEnv)
+	// Starting application in mode: %s
+	log.Printf("Starting application in mode: %s", cfg.AppEnv)
 
 	var userRepo ports.UserRepository
 	var tweetRepo ports.TweetRepository
 	var timelineRepo ports.TimelineRepository
 
 	if cfg.AppEnv == "prod" {
-		log.Println("Usando configuración de producción: PostgreSQL + Redis Cache")
+		// Using production configuration: PostgreSQL + Redis Cache
+		log.Println("Using production configuration: PostgreSQL + Redis Cache")
 		dbpool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 		if err != nil {
-			log.Fatalf("No se pudo conectar a PostgreSQL: %v", err)
+			// Could not connect to PostgreSQL: %v
+			log.Fatalf("Could not connect to PostgreSQL: %v", err)
 		}
 		defer dbpool.Close()
 
 		opt, err := redis.ParseURL(cfg.RedisURL)
 		if err != nil {
-			log.Fatalf("No se pudo parsear la URL de Redis: %v", err)
+			// Could not parse the Redis URL: %v
+			log.Fatalf("Could not parse the Redis URL: %v", err)
 		}
 		redisClient := redis.NewClient(opt)
 		if _, err := redisClient.Ping(ctx).Result(); err != nil {
-			log.Fatalf("No se pudo conectar a Redis: %v", err)
+			// Could not connect to Redis: %v
+			log.Fatalf("Could not connect to Redis: %v", err)
 		}
 
 		postgresRepo := repository.NewPostgresRepository(dbpool)
@@ -65,7 +71,8 @@ func main() {
 		timelineRepo = cachingRepo
 
 	} else {
-		log.Println("Usando configuración de desarrollo: Mock Repository en memoria")
+		// Using development configuration: In-memory Mock Repository
+		log.Println("Using development configuration: In-memory Mock Repository")
 		mockRepo := repository.NewMockRepository()
 		userRepo = mockRepo
 		tweetRepo = mockRepo
@@ -85,8 +92,10 @@ func main() {
 	httpHandler.SetupRoutes(router)
 
 	serverAddr := ":" + cfg.Port
-	log.Printf("Servidor escuchando en %s", serverAddr)
+	// Server listening on %s
+	log.Printf("Server listening on %s", serverAddr)
 	if err := router.Run(serverAddr); err != nil {
-		log.Fatalf("No se pudo iniciar el servidor: %v", err)
+		// Could not start the server: %v
+		log.Fatalf("Could not start the server: %v", err)
 	}
 }

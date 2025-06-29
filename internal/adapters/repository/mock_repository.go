@@ -41,7 +41,38 @@ func (r *MockRepository) FollowTx(_ context.Context, userID, userToFollowID stri
 	r.ensureUserExists(userToFollowID)
 
 	r.followers[userToFollowID][userID] = true
+
+	var followeeTweets []*domain.Tweet
+	for _, tweet := range r.tweets {
+		if tweet.UserID == userToFollowID {
+			followeeTweets = append(followeeTweets, tweet)
+		}
+	}
+
+	sort.SliceStable(followeeTweets, func(i, j int) bool {
+		return followeeTweets[i].CreatedAt.After(followeeTweets[j].CreatedAt)
+	})
+
+	limit := 50
+	if len(followeeTweets) < limit {
+		limit = len(followeeTweets)
+	}
+	r.timelines[userID] = append(r.timelines[userID], followeeTweets[:limit]...)
+
 	return nil
+}
+
+func (r *MockRepository) GetFollowers(_ context.Context, userID string) ([]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var followers []string
+	if followerMap, ok := r.followers[userID]; ok {
+		for id := range followerMap {
+			followers = append(followers, id)
+		}
+	}
+	return followers, nil
 }
 
 // --- TweetRepository ---
@@ -52,18 +83,12 @@ func (r *MockRepository) PublishTx(_ context.Context, tweet *domain.Tweet) error
 	r.ensureUserExists(tweet.UserID)
 	r.tweets[tweet.ID] = tweet
 
-	followersToUpdate := []string{}
 	if followers, ok := r.followers[tweet.UserID]; ok {
-		for id := range followers {
-			followersToUpdate = append(followersToUpdate, id)
+		for followerID := range followers {
+			r.timelines[followerID] = append(r.timelines[followerID], tweet)
 		}
 	}
 
-	followersToUpdate = append(followersToUpdate, tweet.UserID)
-
-	for _, id := range followersToUpdate {
-		r.timelines[id] = append(r.timelines[id], tweet)
-	}
 	return nil
 }
 
@@ -80,6 +105,7 @@ func (r *MockRepository) Get(_ context.Context, userID string, limit int) ([]dom
 	sort.SliceStable(timelinePointers, func(i, j int) bool {
 		return timelinePointers[i].CreatedAt.After(timelinePointers[j].CreatedAt)
 	})
+
 	if len(timelinePointers) > limit {
 		timelinePointers = timelinePointers[:limit]
 	}

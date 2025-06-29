@@ -47,10 +47,10 @@ func (r *CachingRepository) Get(ctx context.Context, userID string, limit int) (
 	}
 
 	if err != redis.Nil {
-		log.Printf("Redis error proceeding to DB : %v", err)
+		log.Printf("redis error (not 'not found'), continuing to DB: %v", err)
 	}
 
-	log.Printf("Cache MISS for user's timeline: %s. Querying the DB.", userID)
+	log.Printf("cache MISS for user's timeline: %s. querying the DB.", userID)
 	timeline, err := r.nextTimelineRepo.Get(ctx, userID, limit)
 	if err != nil {
 		return nil, err
@@ -72,9 +72,27 @@ func (r *CachingRepository) PublishTx(ctx context.Context, tweet *domain.Tweet) 
 		return err
 	}
 
-	log.Printf("Invalidating timeline cache for author: %s", tweet.UserID)
-	authorCacheKey := "timeline:" + tweet.UserID
-	r.redisClient.Del(ctx, authorCacheKey)
+	followers, err := r.nextUserRepo.GetFollowers(ctx, tweet.UserID)
+	if err != nil {
+		log.Printf("error getting followers to invalidate cache: %v", err)
+		return nil
+	}
+
+	if len(followers) == 0 {
+		return nil
+	}
+
+	pipe := r.redisClient.Pipeline()
+	for _, followerID := range followers {
+		cacheKey := "timeline:" + followerID
+		pipe.Del(ctx, cacheKey)
+	}
+	_, err = pipe.Exec(ctx)
+	if err != nil && err != redis.Nil {
+		log.Printf("error executing cache invalidation pipeline in redis: %v", err)
+	}
+
+	log.Printf("cache invalidated for %d follower timelines.", len(followers))
 
 	return nil
 }
@@ -82,8 +100,12 @@ func (r *CachingRepository) PublishTx(ctx context.Context, tweet *domain.Tweet) 
 func (r *CachingRepository) FollowTx(ctx context.Context, userID, userToFollowID string) error {
 	err := r.nextUserRepo.FollowTx(ctx, userID, userToFollowID)
 	if err == nil {
-		log.Printf("Invalidating timeline cache for new follower: %s", userID)
+		log.Printf("invalidating timeline cache for the new follower: %s", userID)
 		r.redisClient.Del(ctx, "timeline:"+userID)
 	}
 	return err
+}
+
+func (r *CachingRepository) GetFollowers(ctx context.Context, userID string) ([]string, error) {
+	return r.nextUserRepo.GetFollowers(ctx, userID)
 }
