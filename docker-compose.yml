@@ -1,0 +1,45 @@
+services:
+  # Servicio de la base de datos PostgreSQL
+  db:
+    # CAMBIO: Usamos la imagen estándar de Postgres (basada en Debian)
+    image: postgres:16
+    container_name: microblog-db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: microblog_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # Servicio de la caché Redis
+  cache:
+    # CAMBIO: Usamos la imagen estándar de Redis (basada en Debian)
+    image: redis:7
+    container_name: microblog-cache
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  # Servicio de nuestra aplicación Go
+  app:
+    container_name: microblog-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      APP_ENV: prod
+      SERVER_PORT: 8080
+      DATABASE_URL: "postgres://user:password@db:5432/microblog_db?sslmode=disable"
+      REDIS_URL: "redis://cache:6379/0"
+    depends_on:
+      - db
+      - cache
+    restart: on-failure
+
+volumes:
+  postgres-data:

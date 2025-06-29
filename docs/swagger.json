@@ -1,0 +1,227 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Esta es una API para una plataforma de microblogging similar a Twitter.",
+        "title": "Uala Challenge API",
+        "termsOfService": "http://swagger.io/terms/",
+        "contact": {
+            "name": "Estefania Sack",
+            "url": "https://github.com/EstefiS"
+        },
+        "license": {
+            "name": "Apache 2.0",
+            "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+        },
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/api/v1",
+    "paths": {
+        "/timeline": {
+            "get": {
+                "description": "Returns a list of the most recent tweets from users the current user follows.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Timeline"
+                ],
+                "summary": "Get Timeline",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID of the user whose timeline is being requested",
+                        "name": "X-User-ID",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/domain.Tweet"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tweets": {
+            "post": {
+                "description": "Allows an authenticated user to publish a new message (tweet).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Tweets"
+                ],
+                "summary": "Publish a Tweet",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID of the user publishing the tweet",
+                        "name": "X-User-ID",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "Tweet content",
+                        "name": "tweet",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/http.PublishTweetRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Tweet created successfully",
+                        "schema": {
+                            "$ref": "#/definitions/domain.Tweet"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request (e.g., tweet too long)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized (missing X-User-ID header)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/users/{id}/follow": {
+            "post": {
+                "description": "The current user (identified by X-User-ID) starts following another user (identified by their ID in the URL).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Follow a User",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID of the user performing the action",
+                        "name": "X-User-ID",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "ID of the user to follow",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "domain.Tweet": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "userID": {
+                    "type": "string"
+                }
+            }
+        },
+        "http.PublishTweetRequest": {
+            "type": "object",
+            "required": [
+                "text"
+            ],
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "maxLength": 280
+                }
+            }
+        }
+    }
+}
