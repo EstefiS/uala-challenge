@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/EstefiS/uala-challenge/internal/core/domain"
@@ -35,19 +36,51 @@ func (r *PostgresRepository) FollowTx(ctx context.Context, userID, userToFollowI
 	}
 	defer tx.Rollback(ctx)
 
-	if err := ensureUserExistsTx(ctx, tx, userID); err != nil {
-		return err
-	}
-	if err := ensureUserExistsTx(ctx, tx, userToFollowID); err != nil {
-		return err
+	batch := &pgx.Batch{}
+
+	// 1. Asegurarse de que ambos usuarios existen en la tabla de usuarios.
+	batch.Queue("INSERT INTO users (id, created_at) VALUES ($1, NOW()) ON CONFLICT (id) DO NOTHING", userID)
+	batch.Queue("INSERT INTO users (id, created_at) VALUES ($1, NOW()) ON CONFLICT (id) DO NOTHING", userToFollowID)
+
+	// 2. Crear la relación de seguimiento.
+	// La clave primaria previene duplicados, por lo que no necesitamos ON CONFLICT.
+	batch.Queue("INSERT INTO followers (user_id, follower_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", userToFollowID, userID)
+
+	// --- INICIO DE LA CORRECCIÓN ---
+	// 3. "Rellenar" (Backfill) el timeline del nuevo seguidor (userID) con los tweets más recientes
+	//    del usuario al que ahora sigue (userToFollowID).
+	//    La consulta ahora inserta en las columnas correctas: user_id, tweet_id, tweet_created_at.
+	backfillQuery := `
+		INSERT INTO timelines (user_id, tweet_id, tweet_created_at)
+		SELECT $1, id, created_at
+		FROM tweets
+		WHERE user_id = $2
+		ORDER BY created_at DESC
+		LIMIT 50
+		ON CONFLICT (user_id, tweet_id) DO NOTHING
+	`
+	batch.Queue(backfillQuery, userID, userToFollowID)
+	// --- FIN DE LA CORRECCIÓN ---
+
+	br := tx.SendBatch(ctx, batch)
+	// Cerramos el batch para liberar recursos. Si hubo un error en el batch, br.Close() lo devolverá.
+	if err := br.Close(); err != nil {
+		// No es necesario hacer tx.Rollback(ctx) aquí, el defer ya se encarga de eso.
+		return fmt.Errorf("error en el batch de seguimiento: %w", err)
 	}
 
-	_, err = tx.Exec(ctx, "INSERT INTO followers (user_id, follower_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", userToFollowID, userID)
-	if err != nil {
-		return fmt.Errorf("error saving follow relationship: %w", err)
-	}
-
+	// Si todo fue bien, hacemos commit de la transacción.
 	return tx.Commit(ctx)
+}
+func (r *PostgresRepository) GetFollowers(ctx context.Context, userID string) ([]string, error) {
+	query := "SELECT follower_id FROM followers WHERE user_id=$1"
+	rows, err := r.db.Query(ctx, query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
 // --- TweetRepository ---
@@ -58,40 +91,47 @@ func (r *PostgresRepository) PublishTx(ctx context.Context, tweet *domain.Tweet)
 	}
 	defer tx.Rollback(ctx)
 
-	if err := ensureUserExistsTx(ctx, tx, tweet.UserID); err != nil {
-		return err
+	// --- INICIO DE LA CORRECCIÓN ---
+	// 1. Asegurarnos de que el autor del tweet exista en la tabla 'users'.
+	//    Si no existe, lo crea. Si ya existe, ON CONFLICT no hace nada.
+	userQuery := "INSERT INTO users (id, created_at) VALUES ($1, NOW()) ON CONFLICT (id) DO NOTHING"
+	if _, err := tx.Exec(ctx, userQuery, tweet.UserID); err != nil {
+		return fmt.Errorf("error al asegurar la existencia del usuario autor: %w", err)
+	}
+	// --- FIN DE LA CORRECCIÓN ---
+
+	// 2. Ahora sí, insertar el nuevo tweet en la tabla de tweets.
+	tweetQuery := "INSERT INTO tweets (id, user_id, text, created_at) VALUES ($1, $2, $3, $4)"
+	if _, err := tx.Exec(ctx, tweetQuery, tweet.ID, tweet.UserID, tweet.Text, tweet.CreatedAt); err != nil {
+		return fmt.Errorf("error al insertar el tweet: %w", err)
 	}
 
-	_, err = tx.Exec(ctx, "INSERT INTO tweets (id, user_id, text, created_at) VALUES ($1, $2, $3, $4)",
-		tweet.ID, tweet.UserID, tweet.Text, tweet.CreatedAt)
+	// 3. Obtener la lista de todos los usuarios que siguen al autor del tweet.
+	followersQuery := "SELECT follower_id FROM followers WHERE user_id = $1"
+	rows, err := tx.Query(ctx, followersQuery, tweet.UserID)
 	if err != nil {
-		return fmt.Errorf("error saving tweet: %w", err)
-	}
-
-	rows, err := tx.Query(ctx, "SELECT follower_id FROM followers WHERE user_id=$1", tweet.UserID)
-	if err != nil {
-		return fmt.Errorf("error getting followers: %w", err)
-	}
-
-	followerIDs, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return fmt.Errorf("error al recolectar seguidores: %w", err)
-	}
-
-	followerIDs = append(followerIDs, tweet.UserID)
-
-	if len(followerIDs) > 0 {
-		var b pgx.Batch
-		query := "INSERT INTO timelines (user_id, tweet_id, tweet_created_at) VALUES ($1, $2, $3)"
-		for _, followerID := range followerIDs {
-			b.Queue(query, followerID, tweet.ID, tweet.CreatedAt)
+		// Logueamos pero no fallamos la transacción, el tweet ya se guardó.
+		log.Printf("Error al obtener seguidores para fan-out: %v", err)
+	} else {
+		followers, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		rows.Close() // Importante cerrar aquí
+		if err != nil {
+			log.Printf("Error al recolectar seguidores para fan-out: %v", err)
+		} else if len(followers) > 0 {
+			// 4. Si hay seguidores, distribuir el tweet a SUS timelines.
+			batch := &pgx.Batch{}
+			fanOutQuery := "INSERT INTO timelines (user_id, tweet_id, tweet_created_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"
+			for _, followerID := range followers {
+				batch.Queue(fanOutQuery, followerID, tweet.ID, tweet.CreatedAt)
+			}
+			br := tx.SendBatch(ctx, batch)
+			if err := br.Close(); err != nil {
+				log.Printf("Error en el fan-out a los timelines de los seguidores: %v", err)
+			}
 		}
-		br := tx.SendBatch(ctx, &b)
-		if err := br.Close(); err != nil {
-			return fmt.Errorf("error in bulk timeline insertion: %w", err)
-		}
 	}
 
+	// 5. Si todo fue bien, hacemos commit.
 	return tx.Commit(ctx)
 }
 

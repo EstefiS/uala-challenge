@@ -1,11 +1,8 @@
--- Eliminar tablas si existen para una fácil recreación
 DROP TABLE IF EXISTS timelines;
 DROP TABLE IF EXISTS followers;
 DROP TABLE IF EXISTS tweets;
 DROP TABLE IF EXISTS users;
 
--- La tabla de usuarios ahora solo necesita un ID.
--- Se poblará automáticamente la primera vez que un ID de usuario se use.
 CREATE TABLE users (
     id VARCHAR(255) PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

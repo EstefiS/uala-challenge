@@ -12,7 +12,8 @@ const docTemplate = `{
         "termsOfService": "http://swagger.io/terms/",
         "contact": {
             "name": "Estefania Sack",
-            "url": "https://github.com/EstefiS"
+            "url": "https://github.com/EstefiS/uala-challenge",
+            "email": "support@example.com"
         },
         "license": {
             "name": "Apache 2.0",
@@ -238,8 +239,8 @@ var SwaggerInfo = &swag.Spec{
 	Host:             "localhost:8080",
 	BasePath:         "/api/v1",
 	Schemes:          []string{},
-	Title:            "Uala Challenge API",
-	Description:      "Esta es una API para una plataforma de microblogging similar a Twitter.",
+	Title:            "Uala Challenge - Microblogging API",
+	Description:      "Esta es una API para una plataforma de microblogging similar a Twitter, construida con Go y Arquitectura Hexagonal.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

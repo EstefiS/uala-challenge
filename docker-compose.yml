@@ -1,7 +1,5 @@
 services:
-  # Servicio de la base de datos PostgreSQL
   db:
-    # CAMBIO: Usamos la imagen estándar de Postgres (basada en Debian)
     image: postgres:16
     container_name: microblog-db
     environment:
@@ -11,19 +9,22 @@ services:
     ports:
       - "5432:5432"
     volumes:
+      # Esta línea mantiene los datos de la DB persistentes
       - postgres-data:/var/lib/postgresql/data
+      # --- INICIO DE LA CORRECCIÓN ---
+      # Esta nueva línea copia nuestro schema.sql al directorio de inicialización de Postgres.
+      # Se ejecutará solo la primera vez que se cree la base de datos.
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      # --- FIN DE LA CORRECCIÓN ---
     restart: unless-stopped
 
-  # Servicio de la caché Redis
   cache:
-    # CAMBIO: Usamos la imagen estándar de Redis (basada en Debian)
     image: redis:7
     container_name: microblog-cache
     ports:
       - "6379:6379"
     restart: unless-stopped
 
-  # Servicio de nuestra aplicación Go
   app:
     container_name: microblog-app
     build:

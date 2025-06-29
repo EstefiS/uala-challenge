@@ -44,6 +44,19 @@ func (r *MockRepository) FollowTx(_ context.Context, userID, userToFollowID stri
 	return nil
 }
 
+func (r *MockRepository) GetFollowers(_ context.Context, userID string) ([]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var followers []string
+	if followerMap, ok := r.followers[userID]; ok {
+		for id := range followerMap {
+			followers = append(followers, id)
+		}
+	}
+	return followers, nil
+}
+
 // --- TweetRepository ---
 func (r *MockRepository) PublishTx(_ context.Context, tweet *domain.Tweet) error {
 	r.mu.Lock()
