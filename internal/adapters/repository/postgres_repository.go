@@ -104,7 +104,6 @@ func (r *PostgresRepository) PublishTx(ctx context.Context, tweet *domain.Tweet)
 		}
 		br := tx.SendBatch(ctx, batch)
 		if err := br.Close(); err != nil {
-			// MEJORA: Devolvemos el error para que la transacción haga rollback
 			return fmt.Errorf("error in fan-out to follower timelines: %w", err)
 		}
 	}
