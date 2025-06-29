@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
+	"os"
 
 	"github.com/EstefiS/uala-challenge/configs"
-	"github.com/EstefiS/uala-challenge/internal/adapters/http"
+	httpAdapter "github.com/EstefiS/uala-challenge/internal/adapters/http"
 	"github.com/EstefiS/uala-challenge/internal/adapters/repository"
 	"github.com/EstefiS/uala-challenge/internal/core/ports"
 	"github.com/EstefiS/uala-challenge/internal/core/services"
@@ -32,70 +33,70 @@ import (
 
 // @host      localhost:8080
 // @BasePath  /api/v1
-func main() {
-	ctx := context.Background()
-	cfg := configs.LoadConfig()
-	// Starting application in mode: %s
-	log.Printf("Starting application in mode: %s", cfg.AppEnv)
-
-	var userRepo ports.UserRepository
-	var tweetRepo ports.TweetRepository
-	var timelineRepo ports.TimelineRepository
-
+func setupDependencies(ctx context.Context, cfg *configs.Config, logger *slog.Logger) (ports.UserRepository, ports.TweetRepository, ports.TimelineRepository) {
 	if cfg.AppEnv == "prod" {
-		// Using production configuration: PostgreSQL + Redis Cache
-		log.Println("Using production configuration: PostgreSQL + Redis Cache")
+		logger.Info("Using production configuration: PostgreSQL + Redis Cache")
+
 		dbpool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 		if err != nil {
-			// Could not connect to PostgreSQL: %v
-			log.Fatalf("Could not connect to PostgreSQL: %v", err)
+			logger.Error("Could not connect to PostgreSQL", "error", err)
+			os.Exit(1)
 		}
-		defer dbpool.Close()
 
 		opt, err := redis.ParseURL(cfg.RedisURL)
 		if err != nil {
-			// Could not parse the Redis URL: %v
-			log.Fatalf("Could not parse the Redis URL: %v", err)
+			logger.Error("Could not parse the Redis URL", "error", err)
+			os.Exit(1)
 		}
 		redisClient := redis.NewClient(opt)
 		if _, err := redisClient.Ping(ctx).Result(); err != nil {
-			// Could not connect to Redis: %v
-			log.Fatalf("Could not connect to Redis: %v", err)
+			logger.Error("Could not connect to Redis", "error", err)
+			os.Exit(1)
 		}
 
-		postgresRepo := repository.NewPostgresRepository(dbpool)
-		cachingRepo := repository.NewCachingRepository(redisClient, postgresRepo, postgresRepo, postgresRepo)
+		postgresRepo := repository.NewPostgresRepository(dbpool, logger)
+		cachingRepo := repository.NewCachingRepository(redisClient, postgresRepo, postgresRepo, postgresRepo, logger)
 
-		userRepo = cachingRepo
-		tweetRepo = cachingRepo
-		timelineRepo = cachingRepo
-
-	} else {
-		// Using development configuration: In-memory Mock Repository
-		log.Println("Using development configuration: In-memory Mock Repository")
-		mockRepo := repository.NewMockRepository()
-		userRepo = mockRepo
-		tweetRepo = mockRepo
-		timelineRepo = mockRepo
+		return cachingRepo, cachingRepo, cachingRepo
 	}
+
+	logger.Info("Using development configuration: In-memory Mock Repository")
+	mockRepo := repository.NewMockRepository()
+	return mockRepo, mockRepo, mockRepo
+}
+
+func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+	ctx := context.Background()
+	cfg := configs.LoadConfig()
+	logger.Info("Starting application", "environment", cfg.AppEnv)
+
+	userRepo, tweetRepo, timelineRepo := setupDependencies(ctx, cfg, logger)
 
 	tweetSvc := services.NewTweetService(tweetRepo)
 	followSvc := services.NewFollowService(userRepo)
 	timelineSvc := services.NewTimelineService(timelineRepo)
+
+	apiDeps := httpAdapter.HandlerDependencies{
+		TweetSvc:    tweetSvc,
+		FollowSvc:   followSvc,
+		TimelineSvc: timelineSvc,
+		Logger:      logger,
+	}
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.Default()
 
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	httpHandler := http.NewGinHandler(tweetSvc, followSvc, timelineSvc)
+	httpHandler := httpAdapter.NewGinHandler(apiDeps)
 	httpHandler.SetupRoutes(router)
 
 	serverAddr := ":" + cfg.Port
-	// Server listening on %s
-	log.Printf("Server listening on %s", serverAddr)
+	logger.Info("Server listening", "address", serverAddr)
 	if err := router.Run(serverAddr); err != nil {
-		// Could not start the server: %v
-		log.Fatalf("Could not start the server: %v", err)
+		logger.Error("Could not start the server", "error", err)
+		os.Exit(1)
 	}
 }
