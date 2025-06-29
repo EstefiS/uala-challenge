@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/EstefiS/uala-challenge/internal/core/domain"
@@ -16,6 +16,7 @@ type CachingRepository struct {
 	nextUserRepo     ports.UserRepository
 	nextTweetRepo    ports.TweetRepository
 	nextTimelineRepo ports.TimelineRepository
+	logger           *slog.Logger
 	ttl              time.Duration
 }
 
@@ -24,22 +25,28 @@ func NewCachingRepository(
 	userRepo ports.UserRepository,
 	tweetRepo ports.TweetRepository,
 	timelineRepo ports.TimelineRepository,
+	logger *slog.Logger,
 ) *CachingRepository {
 	return &CachingRepository{
 		redisClient:      client,
 		nextUserRepo:     userRepo,
 		nextTweetRepo:    tweetRepo,
 		nextTimelineRepo: timelineRepo,
+		logger:           logger.With("component", "CachingRepository"),
 		ttl:              2 * time.Minute,
 	}
 }
 
+func timelineCacheKey(userID string) string {
+	return "timeline:" + userID
+}
+
 func (r *CachingRepository) Get(ctx context.Context, userID string, limit int) ([]domain.Tweet, error) {
-	cacheKey := "timeline:" + userID
+	cacheKey := timelineCacheKey(userID)
 
 	val, err := r.redisClient.Get(ctx, cacheKey).Result()
 	if err == nil {
-		log.Printf("Cache HIT for user's timeline: %s", userID)
+		r.logger.Debug("Cache HIT for user's timeline", "userID", userID)
 		var timeline []domain.Tweet
 		if json.Unmarshal([]byte(val), &timeline) == nil {
 			return timeline, nil
@@ -47,20 +54,29 @@ func (r *CachingRepository) Get(ctx context.Context, userID string, limit int) (
 	}
 
 	if err != redis.Nil {
-		log.Printf("redis error (not 'not found'), continuing to DB: %v", err)
+		r.logger.Warn("Redis error on GET (not a cache miss)", "error", err, "key", cacheKey)
 	}
 
-	log.Printf("cache MISS for user's timeline: %s. querying the DB.", userID)
+	r.logger.Debug("Cache MISS for user's timeline", "userID", userID)
 	timeline, err := r.nextTimelineRepo.Get(ctx, userID, limit)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(timeline) > 0 {
-		data, marshalErr := json.Marshal(timeline)
-		if marshalErr == nil {
-			r.redisClient.Set(ctx, cacheKey, data, r.ttl)
-		}
+		go func() {
+			bgCtx := context.Background()
+
+			data, marshalErr := json.Marshal(timeline)
+			if marshalErr != nil {
+				r.logger.Error("Background cache population: failed to marshal timeline", "error", marshalErr, "userID", userID)
+				return
+			}
+
+			if err := r.redisClient.Set(bgCtx, cacheKey, data, r.ttl).Err(); err != nil {
+				r.logger.Error("Background cache population: failed to set cache", "error", err, "userID", userID)
+			}
+		}()
 	}
 
 	return timeline, nil
@@ -74,7 +90,7 @@ func (r *CachingRepository) PublishTx(ctx context.Context, tweet *domain.Tweet) 
 
 	followers, err := r.nextUserRepo.GetFollowers(ctx, tweet.UserID)
 	if err != nil {
-		log.Printf("error getting followers to invalidate cache: %v", err)
+		r.logger.Error("Failed to get followers for cache invalidation", "error", err, "userID", tweet.UserID)
 		return nil
 	}
 
@@ -84,15 +100,14 @@ func (r *CachingRepository) PublishTx(ctx context.Context, tweet *domain.Tweet) 
 
 	pipe := r.redisClient.Pipeline()
 	for _, followerID := range followers {
-		cacheKey := "timeline:" + followerID
-		pipe.Del(ctx, cacheKey)
+		pipe.Del(ctx, timelineCacheKey(followerID))
 	}
 	_, err = pipe.Exec(ctx)
 	if err != nil && err != redis.Nil {
-		log.Printf("error executing cache invalidation pipeline in redis: %v", err)
+		r.logger.Error("Failed to execute cache invalidation pipeline", "error", err)
 	}
 
-	log.Printf("cache invalidated for %d follower timelines.", len(followers))
+	r.logger.Info("Cache invalidated for follower timelines", "count", len(followers))
 
 	return nil
 }
@@ -100,8 +115,10 @@ func (r *CachingRepository) PublishTx(ctx context.Context, tweet *domain.Tweet) 
 func (r *CachingRepository) FollowTx(ctx context.Context, userID, userToFollowID string) error {
 	err := r.nextUserRepo.FollowTx(ctx, userID, userToFollowID)
 	if err == nil {
-		log.Printf("invalidating timeline cache for the new follower: %s", userID)
-		r.redisClient.Del(ctx, "timeline:"+userID)
+		r.logger.Info("Invalidating timeline cache for new follower", "userID", userID)
+		if err := r.redisClient.Del(ctx, timelineCacheKey(userID)).Err(); err != nil {
+			r.logger.Warn("Failed to invalidate cache on follow", "error", err, "userID", userID)
+		}
 	}
 	return err
 }

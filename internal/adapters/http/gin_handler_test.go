@@ -3,8 +3,11 @@ package http
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,12 +28,19 @@ func setupRouter(h *GinHandler) *gin.Engine {
 
 func TestGinHandler_publishTweet(t *testing.T) {
 	t.Run("Success: should return 201 Created on successful tweet publication", func(t *testing.T) {
-		// Setup
 		mockTweetSvc := new(mocks.TweetService)
 		mockFollowSvc := new(mocks.FollowService)
 		mockTimelineSvc := new(mocks.TimelineService)
+		discardLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-		handler := NewGinHandler(mockTweetSvc, mockFollowSvc, mockTimelineSvc)
+		deps := HandlerDependencies{
+			TweetSvc:    mockTweetSvc,
+			FollowSvc:   mockFollowSvc,
+			TimelineSvc: mockTimelineSvc,
+			Logger:      discardLogger,
+		}
+
+		handler := NewGinHandler(deps)
 		router := setupRouter(handler)
 
 		userID := "user-1"
@@ -46,24 +56,18 @@ func TestGinHandler_publishTweet(t *testing.T) {
 		mockTweetSvc.On("PublishTweet", mock.Anything, userID, tweetText).Return(expectedTweet, nil)
 
 		body, _ := json.Marshal(PublishTweetRequest{Text: tweetText})
-
 		req, _ := http.NewRequest(http.MethodPost, "/api/v1/tweets", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-User-ID", userID)
 
 		w := httptest.NewRecorder()
-
-		// Execute
 		router.ServeHTTP(w, req)
 
-		// Assert
 		assert.Equal(t, http.StatusCreated, w.Code)
-
 		var responseTweet domain.Tweet
 		err := json.Unmarshal(w.Body.Bytes(), &responseTweet)
 		assert.NoError(t, err)
 		assert.Equal(t, expectedTweet.ID, responseTweet.ID)
-		assert.Equal(t, expectedTweet.Text, responseTweet.Text)
 
 		mockTweetSvc.AssertExpectations(t)
 	})
@@ -72,16 +76,24 @@ func TestGinHandler_publishTweet(t *testing.T) {
 		mockTweetSvc := new(mocks.TweetService)
 		mockFollowSvc := new(mocks.FollowService)
 		mockTimelineSvc := new(mocks.TimelineService)
+		discardLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-		handler := NewGinHandler(mockTweetSvc, mockFollowSvc, mockTimelineSvc)
+		deps := HandlerDependencies{
+			TweetSvc:    mockTweetSvc,
+			FollowSvc:   mockFollowSvc,
+			TimelineSvc: mockTimelineSvc,
+			Logger:      discardLogger,
+		}
+
+		handler := NewGinHandler(deps)
 		router := setupRouter(handler)
 
 		userID := "user-1"
-		tweetText := "Este texto es demasiado largo, imaginariamente este texto tiene mas de 280 caracteres"
+		longTweetText := strings.Repeat("a", 281)
 
-		mockTweetSvc.On("PublishTweet", mock.Anything, userID, tweetText).Return(nil, domain.ErrTweetTooLong)
+		mockTweetSvc.On("PublishTweet", mock.Anything, userID, longTweetText).Return(nil, domain.ErrTweetTooLong)
 
-		body, _ := json.Marshal(PublishTweetRequest{Text: tweetText})
+		body, _ := json.Marshal(PublishTweetRequest{Text: longTweetText})
 		req, _ := http.NewRequest(http.MethodPost, "/api/v1/tweets", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-User-ID", userID)

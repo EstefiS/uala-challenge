@@ -7,6 +7,8 @@ import (
 	"github.com/EstefiS/uala-challenge/internal/core/ports"
 )
 
+var ErrSelfFollow = errors.New("a user cannot follow themselves")
+
 type followService struct {
 	userRepo ports.UserRepository
 }
