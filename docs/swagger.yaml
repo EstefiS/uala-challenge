@@ -11,6 +11,13 @@ definitions:
       userID:
         type: string
     type: object
+  http.ErrorResponse:
+    properties:
+      error_code:
+        type: string
+      message:
+        type: string
+    type: object
   http.PublishTweetRequest:
     properties:
       text:
@@ -19,14 +26,20 @@ definitions:
     required:
     - text
     type: object
+  http.StatusResponse:
+    properties:
+      status:
+        example: ok
+        type: string
+    type: object
 host: localhost:8080
 info:
   contact:
     email: support@example.com
     name: Estefania Sack
     url: https://github.com/EstefiS/uala-challenge
-  description: Esta es una API para una plataforma de microblogging similar a Twitter,
-    construida con Go y Arquitectura Hexagonal.
+  description: This is an API for a microblogging platform, similar to Twitter, built
+    with Go and Hexagonal Architecture..
   license:
     name: Apache 2.0
     url: http://www.apache.org/licenses/LICENSE-2.0.html
@@ -48,23 +61,19 @@ paths:
       - application/json
       responses:
         "200":
-          description: OK
+          description: A list of tweets
           schema:
             items:
               $ref: '#/definitions/domain.Tweet'
             type: array
         "401":
-          description: Unauthorized
+          description: Unauthorized (missing X-User-ID header)
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/http.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/http.ErrorResponse'
       summary: Get Timeline
       tags:
       - Timeline
@@ -72,14 +81,14 @@ paths:
     post:
       consumes:
       - application/json
-      description: Allows an authenticated user to publish a new message (tweet).
+      description: Allows an authenticated user to post a new message (tweet).
       parameters:
       - description: ID of the user publishing the tweet
         in: header
         name: X-User-ID
         required: true
         type: string
-      - description: Tweet content
+      - description: Tweet Content
         in: body
         name: tweet
         required: true
@@ -93,23 +102,17 @@ paths:
           schema:
             $ref: '#/definitions/domain.Tweet'
         "400":
-          description: Bad request (e.g., tweet too long)
+          description: Bad request (e.g., tweet too long, invalid JSON)
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/http.ErrorResponse'
         "401":
           description: Unauthorized (missing X-User-ID header)
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/http.ErrorResponse'
         "500":
-          description: Internal server error
+          description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/http.ErrorResponse'
       summary: Publish a Tweet
       tags:
       - Tweets
@@ -132,23 +135,17 @@ paths:
       - application/json
       responses:
         "200":
-          description: OK
+          description: Successfully followed user
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/http.StatusResponse'
         "401":
-          description: Unauthorized
+          description: Unauthorized (missing X-User-ID header)
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/http.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/http.ErrorResponse'
       summary: Follow a User
       tags:
       - Users

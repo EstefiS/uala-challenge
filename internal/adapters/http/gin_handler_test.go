@@ -17,7 +17,6 @@ import (
 )
 
 func setupRouter(h *GinHandler) *gin.Engine {
-	// Ponemos Gin en modo de prueba
 	gin.SetMode(gin.TestMode)
 	router := gin.Default()
 	h.SetupRoutes(router)
@@ -28,7 +27,6 @@ func TestGinHandler_publishTweet(t *testing.T) {
 	t.Run("Success: should return 201 Created on successful tweet publication", func(t *testing.T) {
 		// Setup
 		mockTweetSvc := new(mocks.TweetService)
-		// Los otros mocks no son necesarios para este test específico, pero el handler los requiere
 		mockFollowSvc := new(mocks.FollowService)
 		mockTimelineSvc := new(mocks.TimelineService)
 
@@ -38,7 +36,6 @@ func TestGinHandler_publishTweet(t *testing.T) {
 		userID := "user-1"
 		tweetText := "Mi primer tweet de prueba"
 
-		// El tweet que esperamos que el servicio devuelva
 		expectedTweet := &domain.Tweet{
 			ID:        uuid.NewString(),
 			UserID:    userID,
@@ -46,18 +43,14 @@ func TestGinHandler_publishTweet(t *testing.T) {
 			CreatedAt: time.Now(),
 		}
 
-		// Mocking: Le decimos al servicio mock qué devolver cuando sea llamado
 		mockTweetSvc.On("PublishTweet", mock.Anything, userID, tweetText).Return(expectedTweet, nil)
 
-		// Creamos el cuerpo de la petición JSON
 		body, _ := json.Marshal(PublishTweetRequest{Text: tweetText})
 
-		// Creamos la petición HTTP de prueba
 		req, _ := http.NewRequest(http.MethodPost, "/api/v1/tweets", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-User-ID", userID)
 
-		// Usamos un ResponseRecorder para capturar la respuesta
 		w := httptest.NewRecorder()
 
 		// Execute
@@ -84,9 +77,8 @@ func TestGinHandler_publishTweet(t *testing.T) {
 		router := setupRouter(handler)
 
 		userID := "user-1"
-		tweetText := "Este texto es demasiado largo"
+		tweetText := "Este texto es demasiado largo, imaginariamente este texto tiene mas de 280 caracteres"
 
-		// Mocking: Configuramos el mock para que devuelva el error específico
 		mockTweetSvc.On("PublishTweet", mock.Anything, userID, tweetText).Return(nil, domain.ErrTweetTooLong)
 
 		body, _ := json.Marshal(PublishTweetRequest{Text: tweetText})

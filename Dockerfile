@@ -7,11 +7,8 @@ RUN go mod download
 
 COPY . .
 
-# Compilamos la aplicación, forzando la arquitectura para máxima compatibilidad.
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo -o /app/main ./cmd/server/main.go
 
-
-# --- Etapa 2: Final ---
 FROM debian:bookworm-slim
 
 WORKDIR /

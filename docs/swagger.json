@@ -1,7 +1,7 @@
 {
     "swagger": "2.0",
     "info": {
-        "description": "Esta es una API para una plataforma de microblogging similar a Twitter, construida con Go y Arquitectura Hexagonal.",
+        "description": "This is an API for a microblogging platform, similar to Twitter, built with Go and Hexagonal Architecture..",
         "title": "Uala Challenge - Microblogging API",
         "termsOfService": "http://swagger.io/terms/",
         "contact": {
@@ -39,7 +39,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "A list of tweets",
                         "schema": {
                             "type": "array",
                             "items": {
@@ -48,21 +48,15 @@
                         }
                     },
                     "401": {
-                        "description": "Unauthorized",
+                        "description": "Unauthorized (missing X-User-ID header)",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -70,7 +64,7 @@
         },
         "/tweets": {
             "post": {
-                "description": "Allows an authenticated user to publish a new message (tweet).",
+                "description": "Allows an authenticated user to post a new message (tweet).",
                 "consumes": [
                     "application/json"
                 ],
@@ -90,7 +84,7 @@
                         "required": true
                     },
                     {
-                        "description": "Tweet content",
+                        "description": "Tweet Content",
                         "name": "tweet",
                         "in": "body",
                         "required": true,
@@ -107,30 +101,21 @@
                         }
                     },
                     "400": {
-                        "description": "Bad request (e.g., tweet too long)",
+                        "description": "Bad request (e.g., tweet too long, invalid JSON)",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized (missing X-User-ID header)",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
-                        "description": "Internal server error",
+                        "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -164,30 +149,21 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "Successfully followed user",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/http.StatusResponse"
                         }
                     },
                     "401": {
-                        "description": "Unauthorized",
+                        "description": "Unauthorized (missing X-User-ID header)",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -212,6 +188,17 @@
                 }
             }
         },
+        "http.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error_code": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
         "http.PublishTweetRequest": {
             "type": "object",
             "required": [
@@ -221,6 +208,15 @@
                 "text": {
                     "type": "string",
                     "maxLength": 280
+                }
+            }
+        },
+        "http.StatusResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "example": "ok"
                 }
             }
         }

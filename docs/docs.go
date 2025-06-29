@@ -45,7 +45,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "A list of tweets",
                         "schema": {
                             "type": "array",
                             "items": {
@@ -54,21 +54,15 @@ const docTemplate = `{
                         }
                     },
                     "401": {
-                        "description": "Unauthorized",
+                        "description": "Unauthorized (missing X-User-ID header)",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -76,7 +70,7 @@ const docTemplate = `{
         },
         "/tweets": {
             "post": {
-                "description": "Allows an authenticated user to publish a new message (tweet).",
+                "description": "Allows an authenticated user to post a new message (tweet).",
                 "consumes": [
                     "application/json"
                 ],
@@ -96,7 +90,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Tweet content",
+                        "description": "Tweet Content",
                         "name": "tweet",
                         "in": "body",
                         "required": true,
@@ -113,30 +107,21 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Bad request (e.g., tweet too long)",
+                        "description": "Bad request (e.g., tweet too long, invalid JSON)",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized (missing X-User-ID header)",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
-                        "description": "Internal server error",
+                        "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -170,30 +155,21 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "Successfully followed user",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/http.StatusResponse"
                         }
                     },
                     "401": {
-                        "description": "Unauthorized",
+                        "description": "Unauthorized (missing X-User-ID header)",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -218,6 +194,17 @@ const docTemplate = `{
                 }
             }
         },
+        "http.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error_code": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
         "http.PublishTweetRequest": {
             "type": "object",
             "required": [
@@ -227,6 +214,15 @@ const docTemplate = `{
                 "text": {
                     "type": "string",
                     "maxLength": 280
+                }
+            }
+        },
+        "http.StatusResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "example": "ok"
                 }
             }
         }
@@ -240,7 +236,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/api/v1",
 	Schemes:          []string{},
 	Title:            "Uala Challenge - Microblogging API",
-	Description:      "Esta es una API para una plataforma de microblogging similar a Twitter, construida con Go y Arquitectura Hexagonal.",
+	Description:      "This is an API for a microblogging platform, similar to Twitter, built with Go and Hexagonal Architecture..",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

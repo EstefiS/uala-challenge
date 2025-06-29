@@ -24,7 +24,6 @@ func TestNewTweet(t *testing.T) {
 
 	t.Run("Failure: should return an error when text is too long", func(t *testing.T) {
 		userID := "user-123"
-		// Creamos un texto de 281 caracteres
 		longText := strings.Repeat("a", 281)
 
 		tweet, err := NewTweet(userID, longText)
